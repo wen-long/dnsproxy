@@ -209,6 +209,7 @@ func AddressToUpstream(addr string, opts *Options) (u Upstream, err error) {
 		return nil, err
 	}
 
+	opts.Logger.With("isLocalDNS", isLocalDNS(uu.String())).With("u", uu.String()).Info("")
 	return urlToUpstream(uu, opts)
 }
 

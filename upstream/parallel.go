@@ -2,9 +2,15 @@ package upstream
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
 	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
+	"github.com/IGLOU-EU/go-wildcard"
 	"github.com/miekg/dns"
 )
 
@@ -14,12 +20,46 @@ const (
 	ErrNoUpstreams errors.Error = "no upstream specified"
 
 	// ErrNoReply is returned from [ExchangeAll] when no upstreams replied.
-	ErrNoReply errors.Error = "no reply"
+	ErrNoReply          errors.Error = "no reply"
+	ErrToleranceTimeout errors.Error = "Tolerance Timeout"
+
+	LocalDnsPatternEnvKey     string = "LOCAL-DNS-PATTERN"
+	LocalDnsTimeoutMsEnvKey   string = "LOCAL-DNS-TOLERANCE-MS"
+	ToleranceTimeoutMsDefault int    = 60
 )
 
-// ExchangeParallel returns the first successful response from one of u.  It
+var localDnsPatterns []string
+var toleranceTimeoutMs int
+
+func init() {
+	p, ok := os.LookupEnv(LocalDnsPatternEnvKey)
+	if ok {
+		localDnsPatterns = strings.Split(p, ";")
+	}
+	t, ok := os.LookupEnv(LocalDnsTimeoutMsEnvKey)
+	if ok {
+		toleranceTimeoutMs, _ = strconv.Atoi(t)
+	}
+	if toleranceTimeoutMs == 0 {
+		toleranceTimeoutMs = ToleranceTimeoutMsDefault
+	}
+}
+
+func isLocalDNS(s string) bool {
+	for _, pattern := range localDnsPatterns {
+		if wildcard.MatchSimple(pattern, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// ExchangeParallel returns the dirst successful response from one of u.  It
 // returns an error if all upstreams failed to exchange the request.
-func ExchangeParallel(ups []Upstream, req *dns.Msg) (reply *dns.Msg, resolved Upstream, err error) {
+func ExchangeParallel(ups []Upstream, req *dns.Msg, l *slog.Logger) (reply *dns.Msg, resolved Upstream, err error) {
+	if len(req.Question) > 0 {
+		l = l.With("q", req.Question[0].Name)
+	}
 	upsNum := len(ups)
 	switch upsNum {
 	case 0:
@@ -32,21 +72,96 @@ func ExchangeParallel(ups []Upstream, req *dns.Msg) (reply *dns.Msg, resolved Up
 		// Go on.
 	}
 
-	resCh := make(chan any, upsNum)
+	start := time.Now()
+	resCh := make(chan any, upsNum+1)
 	for _, f := range ups {
 		go exchangeAsync(f, req, resCh)
 	}
 
+	go func() {
+		time.Sleep(time.Duration(toleranceTimeoutMs) * time.Millisecond)
+		resCh <- ErrToleranceTimeout
+	}()
+
 	errs := []error{}
-	for range ups {
+	isToleranceTimeout := false
+	var earlyReply *dns.Msg
+	var earlyUpstream Upstream
+	nonLocalReturnEmpty := false
+	localReturnEmpty := false
+
+	lCtx := l
+	for i := 0; i < len(ups)+1; i++ {
 		var r *ExchangeAllResult
 		r, err = receiveAsyncResult(resCh)
-		if err != nil {
+		l = lCtx.With("duration", time.Since(start).Truncate(10*time.Microsecond))
+
+		if errors.Is(err, ErrToleranceTimeout) {
+			isToleranceTimeout = true
+			if earlyReply != nil && earlyUpstream != nil {
+				if len(earlyReply.Answer) > 0 {
+					l = l.With("ttl", earlyReply.Answer[0].Header().Ttl)
+				}
+				l.With("u", earlyUpstream.Address()).Info("tolerance Timeout, use deferred")
+				return earlyReply, earlyUpstream, nil
+			}
+		} else if err != nil {
 			if !errors.Is(err, ErrNoReply) {
 				errs = append(errs, err)
 			}
 		} else {
-			return r.Resp, r.Upstream, nil
+			l = l.With("u", r.Upstream.Address())
+			if isToleranceTimeout {
+				l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+				l.Info("use ANY Answer After Tolerance")
+				return r.Resp, r.Upstream, nil
+			}
+
+			// ⬇️⬇️⬇️ before Tolerance Timeout
+
+			if len(r.Resp.Answer) == 0 {
+				if !isLocalDNS(r.Upstream.Address()) {
+					nonLocalReturnEmpty = true
+				} else {
+					localReturnEmpty = true
+				}
+				if localReturnEmpty && nonLocalReturnEmpty {
+					l.Info("NEG Answer from both DNS")
+					return r.Resp, r.Upstream, nil
+				}
+				if earlyReply == nil {
+					earlyReply = r.Resp
+					earlyUpstream = r.Upstream
+					l.Info("defer NEG Answer")
+					// Be patient
+					continue
+				}
+			} else {
+				if nonLocalReturnEmpty && isLocalDNS(r.Upstream.Address()) {
+					l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+					l.Info("use local Answer, non-local return empty")
+					return r.Resp, r.Upstream, nil
+				}
+				if localReturnEmpty && !isLocalDNS(r.Upstream.Address()) {
+					l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+					l.Info("use non-local Answer, local return empty")
+					return r.Resp, r.Upstream, nil
+				}
+				if isLocalDNS(r.Upstream.Address()) {
+					l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+					l.Info("use local Answer")
+					return r.Resp, r.Upstream, nil
+				}
+
+				// non-local Answer
+				if earlyReply == nil {
+					earlyReply = r.Resp
+					earlyUpstream = r.Upstream
+					l.Info("defer non local Answer")
+					// Be patient
+					continue
+				}
+			}
 		}
 	}
 

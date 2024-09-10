@@ -4,6 +4,7 @@ go 1.22.6
 
 require (
 	github.com/AdguardTeam/golibs v0.26.0
+	github.com/IGLOU-EU/go-wildcard v1.0.3
 	github.com/ameshkov/dnscrypt/v2 v2.2.7
 	github.com/ameshkov/dnsstamps v1.0.3
 	github.com/beefsack/go-rate v0.0.0-20220214233405-116f4ca011a0

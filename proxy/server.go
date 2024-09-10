@@ -237,6 +237,27 @@ func (p *Proxy) setMinMaxTTL(r *dns.Msg) {
 			rr.Header().Ttl = newTTL
 		}
 	}
+
+	for _, rr := range r.Answer {
+		if dnsRRIPIsNotGlobalUnicast(rr) {
+			originalTTL := rr.Header().Ttl
+			newTTL := p.CacheMinTTL
+
+			if originalTTL != newTTL {
+				p.logger.Debug("ttl overwritten for non-GlobalUnicast answer", "old", originalTTL, "new", newTTL)
+				rr.Header().Ttl = newTTL
+			}
+		}
+	}
+}
+func dnsRRIPIsNotGlobalUnicast(rr dns.RR) bool {
+	if a, ok := rr.(*dns.A); ok && !a.A.IsGlobalUnicast() {
+		return true
+	}
+	if a, ok := rr.(*dns.AAAA); ok && !a.AAAA.IsGlobalUnicast() {
+		return true
+	}
+	return false
 }
 
 // logDNSMessage logs the given DNS message.

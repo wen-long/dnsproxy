@@ -558,7 +558,7 @@ func (p *Proxy) replyFromUpstream(d *DNSContext) (ok bool, err error) {
 	src := "upstream"
 
 	// Perform the DNS request.
-	resp, u, err := p.exchangeUpstreams(req, upstreams)
+	resp, u, err := p.exchangeUpstreams(req, upstreams, p.logger)
 	if dns64Ups := p.performDNS64(req, resp, upstreams); dns64Ups != nil {
 		u = dns64Ups
 	} else if p.isBogusNXDomain(resp) {
@@ -577,7 +577,7 @@ func (p *Proxy) replyFromUpstream(d *DNSContext) (ok bool, err error) {
 		// creating proxy.
 		upstreams = p.Fallbacks.getUpstreamsForDomain(req.Question[0].Name)
 
-		resp, u, err = upstream.ExchangeParallel(upstreams, req)
+		resp, u, err = upstream.ExchangeParallel(upstreams, req, p.logger)
 	}
 
 	if err != nil {

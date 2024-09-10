@@ -297,7 +297,7 @@ func (p *Proxy) performDNS64(
 	host := origReq.Question[0].Name
 	p.logger.Debug("received an empty aaaa response, checking dns64", "host", host)
 
-	dns64Resp, u, err := p.exchangeUpstreams(dns64Req, upstreams)
+	dns64Resp, u, err := p.exchangeUpstreams(dns64Req, upstreams, p.logger)
 	if err != nil {
 		p.logger.Error("dns64 request failed", slogutil.KeyError, err)
 

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/AdguardTeam/dnsproxy/upstream"
@@ -17,10 +18,11 @@ import (
 func (p *Proxy) exchangeUpstreams(
 	req *dns.Msg,
 	ups []upstream.Upstream,
+	l *slog.Logger,
 ) (resp *dns.Msg, u upstream.Upstream, err error) {
 	switch p.UpstreamMode {
 	case UpstreamModeParallel:
-		return upstream.ExchangeParallel(ups, req)
+		return upstream.ExchangeParallel(ups, req, l)
 	case UpstreamModeFastestAddr:
 		switch req.Question[0].Qtype {
 		case dns.TypeA, dns.TypeAAAA:
