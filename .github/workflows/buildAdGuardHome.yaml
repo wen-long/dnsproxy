@@ -1,0 +1,76 @@
+name: Build AdGuardHome
+
+'env':
+  'GO_VERSION': '1.22.6'
+
+'on':
+  'push':
+    'tags':
+      - 'v*'
+    'branches':
+      - '*'
+  'pull_request':
+
+jobs:
+
+  'build-AdGuardHome':
+    'defaults':
+      'run':
+       'working-directory': adh
+    'runs-on': 'ubuntu-latest'
+    'steps':
+      - 'name': 'Checkout dnsproxy'
+        'uses': 'actions/checkout@v4'
+        'with':
+          'path': 'dnsproxy'
+      - 'name': 'Checkout adh'
+        'uses': 'actions/checkout@v4'
+        'with':
+          'repository': 'AdguardTeam/AdGuardHome'
+          'path': 'adh'
+          'ref': '6fe4b9440d393786e6a797d49f54ca983ecde534'
+
+      - 'name': 'Set up Go'
+        'uses': 'actions/setup-go@v3'
+        'with':
+          'go-version': '${{ env.GO_VERSION }}'
+
+
+      - 'name': 'replace dnsproxy'
+        'run': go mod edit -replace github.com/AdguardTeam/dnsproxy=${{ github.workspace }}/dnsproxy
+
+
+      - 'name': 'go deps dnsproxy'
+        'run': go get
+        'working-directory': "dnsproxy"
+
+      - 'name': 'go deps adh'
+        'run': go get
+        'working-directory': "adh"
+
+
+      - 'name': 'Set up Node'
+        'uses': 'actions/setup-node@v1'
+        'with':
+          'node-version': '${{ env.NODE_VERSION }}'
+      - 'name': 'Set up Snapcraft'
+        'run': 'sudo apt-get -yq --no-install-suggests --no-install-recommends install snapcraft'
+      - 'name': 'Set up QEMU'
+        'uses': 'docker/setup-qemu-action@v1'
+      - 'name': 'Set up Docker Buildx'
+        'uses': 'docker/setup-buildx-action@v1'
+      - 'name': 'Run snapshot build'
+        # Set a custom version string, since the checkout@v2 action does not seem
+        # to know about the master branch, while the version script uses it to
+        # count the number of commits within the branch.
+        'run': 'make SIGN=0 VERBOSE=1 VERSION="v0.0.0-github" build-release build-docker'
+
+      - name: Upload
+        if: startsWith(github.ref, 'refs/tags')
+        uses: xresloader/upload-to-github-release@v1.3.12
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          file: "adh/dist/AdGuardHome*.tar.gz;adh/dist/AdGuardHome*.zip"
+          tags: true
+          draft: false
