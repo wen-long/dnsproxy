@@ -1,471 +1,100 @@
-[![Code Coverage](https://img.shields.io/codecov/c/github/AdguardTeam/dnsproxy/master.svg)](https://codecov.io/github/AdguardTeam/dnsproxy?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/AdguardTeam/dnsproxy)](https://goreportcard.com/report/AdguardTeam/dnsproxy)
-[![Go Doc](https://godoc.org/github.com/AdguardTeam/dnsproxy?status.svg)](https://godoc.org/github.com/AdguardTeam/dnsproxy)
-
-# DNS Proxy <!-- omit in toc -->
-
-A simple DNS proxy server that supports all existing DNS protocols including
-`DNS-over-TLS`, `DNS-over-HTTPS`, `DNSCrypt`, and `DNS-over-QUIC`. Moreover,
-it can work as a `DNS-over-HTTPS`, `DNS-over-TLS` or `DNS-over-QUIC` server.
-
-- [How to install](#how-to-install)
-- [How to build](#how-to-build)
-- [Usage](#usage)
-- [Examples](#examples)
-  - [Simple options](#simple-options)
-  - [Encrypted upstreams](#encrypted-upstreams)
-  - [Encrypted DNS server](#encrypted-dns-server)
-  - [Additional features](#additional-features)
-  - [DNS64 server](#dns64-server)
-  - [Fastest addr + cache-min-ttl](#fastest-addr--cache-min-ttl)
-  - [Specifying upstreams for domains](#specifying-upstreams-for-domains)
-  - [EDNS Client Subnet](#edns-client-subnet)
-  - [Bogus NXDomain](#bogus-nxdomain)
-
-## How to install
-
-There are several options how to install `dnsproxy`.
-
-1. Grab the binary for your device/OS from the [Releases][releases] page.
-2. Use the [official Docker image][docker].
-3. Build it yourself (see the instruction below).
-
-[releases]: https://github.com/AdguardTeam/dnsproxy/releases
-[docker]: https://hub.docker.com/r/adguard/dnsproxy
-
-## How to build
-
-You will need Go v1.21 or later.
-
-```shell
-$ make build
-```
-
-## Usage
-
-```
-Usage:
-  dnsproxy [OPTIONS]
-
-Application Options:
-      --config-path=               yaml configuration file. Minimal working configuration in config.yaml.dist. Options passed through command
-                                   line will override the ones from this file.
-  -o, --output=                    Path to the log file. If not set, write to stdout.
-  -c, --tls-crt=                   Path to a file with the certificate chain
-  -k, --tls-key=                   Path to a file with the private key
-      --https-server-name=         Set the Server header for the responses from the HTTPS server. (default: dnsproxy)
-      --https-userinfo=            If set, all DoH queries are required to have this basic authentication information.
-  -g, --dnscrypt-config=           Path to a file with DNSCrypt configuration. You can generate one using https://github.com/ameshkov/dnscrypt
-      --edns-addr=                 Send EDNS Client Address
-      --upstream-mode=             Defines the upstreams logic mode, possible values: load_balance, parallel, fastest_addr (default:
-                                   load_balance)
-  -l, --listen=                    Listening addresses
-  -p, --port=                      Listening ports. Zero value disables TCP and UDP listeners
-  -s, --https-port=                Listening ports for DNS-over-HTTPS
-  -t, --tls-port=                  Listening ports for DNS-over-TLS
-  -q, --quic-port=                 Listening ports for DNS-over-QUIC
-  -y, --dnscrypt-port=             Listening ports for DNSCrypt
-  -u, --upstream=                  An upstream to be used (can be specified multiple times). You can also specify path to a file with the
-                                   list of servers
-  -b, --bootstrap=                 Bootstrap DNS for DoH and DoT, can be specified multiple times (default: use system-provided)
-  -f, --fallback=                  Fallback resolvers to use when regular ones are unavailable, can be specified multiple times. You can also
-                                   specify path to a file with the list of servers
-      --private-rdns-upstream=     Private DNS upstreams to use for reverse DNS lookups of private addresses, can be specified multiple times
-      --dns64-prefix=              Prefix used to handle DNS64. If not specified, dnsproxy uses the 'Well-Known Prefix' 64:ff9b::.  Can be
-                                   specified multiple times
-      --private-subnets=           Private subnets to use for reverse DNS lookups of private addresses
-      --bogus-nxdomain=            Transform the responses containing at least a single IP that matches specified addresses and CIDRs into
-                                   NXDOMAIN.  Can be specified multiple times.
-      --hosts-files=               List of paths to the hosts files relative to the root, can be specified multiple times
-      --timeout=                   Timeout for outbound DNS queries to remote upstream servers in a human-readable form (default: 10s)
-      --cache-min-ttl=             Minimum TTL value for DNS entries, in seconds. Capped at 3600. Artificially extending TTLs should only be
-                                   done with careful consideration.
-      --cache-max-ttl=             Maximum TTL value for DNS entries, in seconds.
-      --cache-size=                Cache size (in bytes). Default: 64k
-  -r, --ratelimit=                 Ratelimit (requests per second)
-      --ratelimit-subnet-len-ipv4= Ratelimit subnet length for IPv4. (default: 24)
-      --ratelimit-subnet-len-ipv6= Ratelimit subnet length for IPv6. (default: 56)
-      --udp-buf-size=              Set the size of the UDP buffer in bytes. A value <= 0 will use the system default.
-      --max-go-routines=           Set the maximum number of go routines. A zero value will not not set a maximum.
-      --tls-min-version=           Minimum TLS version, for example 1.0
-      --tls-max-version=           Maximum TLS version, for example 1.3
-      --pprof                      If present, exposes pprof information on localhost:6060.
-      --version                    Prints the program version
-  -v, --verbose                    Verbose output (optional)
-      --insecure                   Disable secure TLS certificate validation
-      --ipv6-disabled              If specified, all AAAA requests will be replied with NoError RCode and empty answer
-      --http3                      Enable HTTP/3 support
-      --cache-optimistic           If specified, optimistic DNS cache is enabled
-      --cache                      If specified, DNS cache is enabled
-      --refuse-any                 If specified, refuse ANY requests
-      --edns                       Use EDNS Client Subnet extension
-      --dns64                      If specified, dnsproxy will act as a DNS64 server
-      --use-private-rdns           If specified, use private upstreams for reverse DNS lookups of private addresses
-      --hosts-file-enabled=        If specified, use hosts files for resolving (default: true)
-
-Help Options:
-  -h, --help                       Show this help message
-```
-
-## Examples
-
-### Simple options
-
-Runs a DNS proxy on `0.0.0.0:53` with a single upstream - Google DNS.
-```shell
-./dnsproxy -u 8.8.8.8:53
-```
-
-The same proxy with verbose logging enabled writing it to the file `log.txt`.
-```shell
-./dnsproxy -u 8.8.8.8:53 -v -o log.txt
-```
-
-Runs a DNS proxy on `127.0.0.1:5353` with multiple upstreams.
-```shell
-./dnsproxy -l 127.0.0.1 -p 5353 -u 8.8.8.8:53 -u 1.1.1.1:53
-```
-
-Listen on multiple interfaces and ports:
-```shell
-./dnsproxy -l 127.0.0.1 -l 192.168.1.10 -p 5353 -p 5354 -u 1.1.1.1
-```
-
-The plain DNS upstream server may be specified in several ways:
-
- -  With a plain IP address:
-    ```shell
-    ./dnsproxy -l 127.0.0.1 -u 8.8.8.8:53
-    ```
-
- -  With a hostname or plain IP address and the `udp://` scheme:
-    ```shell
-    ./dnsproxy -l 127.0.0.1 -u udp://dns.google -u udp://1.1.1.1
-    ```
-
- -  With a hostname or plain IP address and the `tcp://` scheme to force using
-    TCP:
-    ```shell
-    ./dnsproxy -l 127.0.0.1 -u tcp://dns.google -u tcp://1.1.1.1
-    ```
-
-### Encrypted upstreams
-
-DNS-over-TLS upstream:
-```shell
-./dnsproxy -u tls://dns.adguard.com
-```
-
-DNS-over-HTTPS upstream with specified bootstrap DNS:
-```shell
-./dnsproxy -u https://dns.adguard.com/dns-query -b 1.1.1.1:53
-```
-
-DNS-over-QUIC upstream:
-```shell
-./dnsproxy -u quic://dns.adguard.com
-```
-
-DNS-over-HTTPS upstream with enabled HTTP/3 support (chooses it if it's faster):
-```shell
-./dnsproxy -u https://dns.google/dns-query --http3
-```
-
-DNS-over-HTTPS upstream with forced HTTP/3 (no fallback to other protocol):
-```shell
-./dnsproxy -u h3://dns.google/dns-query
-```
-
-DNSCrypt upstream ([DNS Stamp](https://dnscrypt.info/stamps) of AdGuard DNS):
-```shell
-./dnsproxy -u sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20
-```
-
-DNS-over-HTTPS upstream ([DNS Stamp](https://dnscrypt.info/stamps) of Cloudflare DNS):
-```shell
-./dnsproxy -u sdns://AgcAAAAAAAAABzEuMC4wLjGgENk8mGSlIfMGXMOlIlCcKvq7AVgcrZxtjon911-ep0cg63Ul-I8NlFj4GplQGb_TTLiczclX57DvMV8Q-JdjgRgSZG5zLmNsb3VkZmxhcmUuY29tCi9kbnMtcXVlcnk
-```
-
-DNS-over-TLS upstream with two fallback servers (to be used when the main upstream is not available):
-```shell
-./dnsproxy -u tls://dns.adguard.com -f 8.8.8.8:53 -f 1.1.1.1:53
-```
-
-### Encrypted DNS server
-
-Runs a DNS-over-TLS proxy on `127.0.0.1:853`.
-```shell
-./dnsproxy -l 127.0.0.1 --tls-port=853 --tls-crt=example.crt --tls-key=example.key -u 8.8.8.8:53 -p 0
-```
-
-Runs a DNS-over-HTTPS proxy on `127.0.0.1:443`.
-```shell
-./dnsproxy -l 127.0.0.1 --https-port=443 --tls-crt=example.crt --tls-key=example.key -u 8.8.8.8:53 -p 0
-```
 
-Runs a DNS-over-HTTPS proxy on `127.0.0.1:443` with HTTP/3 support.
-```shell
-./dnsproxy -l 127.0.0.1 --https-port=443 --http3 --tls-crt=example.crt --tls-key=example.key -u 8.8.8.8:53 -p 0
-```
-
-Runs a DNS-over-QUIC proxy on `127.0.0.1:853`.
-```shell
-./dnsproxy -l 127.0.0.1 --quic-port=853 --tls-crt=example.crt --tls-key=example.key -u 8.8.8.8:53 -p 0
-```
-
-Runs a DNSCrypt proxy on `127.0.0.1:443`.
-
-```shell
-./dnsproxy -l 127.0.0.1 --dnscrypt-config=./dnscrypt-config.yaml --dnscrypt-port=443 --upstream=8.8.8.8:53 -p 0
-```
-
-> Please note that in order to run a DNSCrypt proxy, you need to obtain DNSCrypt configuration first. You can use https://github.com/ameshkov/dnscrypt command-line tool to do that with a command like this `./dnscrypt generate --provider-name=2.dnscrypt-cert.example.org --out=dnscrypt-config.yaml`
-
-### Additional features
-
-Runs a DNS proxy on `0.0.0.0:53` with rate limit set to `10 rps`, enabled DNS cache, and that refuses type=ANY requests.
-```shell
-./dnsproxy -u 8.8.8.8:53 -r 10 --cache --refuse-any
-```
-
-Runs a DNS proxy on 127.0.0.1:5353 with multiple upstreams and enable parallel queries to all configured upstream servers.
-```shell
-./dnsproxy -l 127.0.0.1 -p 5353 -u 8.8.8.8:53 -u 1.1.1.1:53 -u tls://dns.adguard.com --upstream-mode parallel
-```
-
-Loads upstreams list from a file.
-```shell
-./dnsproxy -l 127.0.0.1 -p 5353 -u ./upstreams.txt
-```
-
-### DNS64 server
-
-`dnsproxy` is capable of working as a DNS64 server.
-
-> **What is DNS64/NAT64**
-> This is a mechanism of providing IPv6 access to IPv4. Using a NAT64 gateway
-> with IPv4-IPv6 translation capability lets IPv6-only clients connect to
-> IPv4-only services via synthetic IPv6 addresses starting with a prefix that
-> routes them to the NAT64 gateway. DNS64 is a DNS service that returns AAAA
-> records with these synthetic IPv6 addresses for IPv4-only destinations
-> (with A but not AAAA records in the DNS). This lets IPv6-only clients use
-> NAT64 gateways without any other configuration.
-
-See also [RFC 6147](https://datatracker.ietf.org/doc/html/rfc6147).
-
-Enables DNS64 with the default [Well-Known Prefix][wkp]:
-```shell
-./dnsproxy -l 127.0.0.1 -p 5353 -u 8.8.8.8 --use-private-rdns --private-rdns-upstream=127.0.0.1 --dns64
-```
-
-You can also specify any number of custom DNS64 prefixes:
-```shell
-./dnsproxy -l 127.0.0.1 -p 5353 -u 8.8.8.8 --use-private-rdns --private-rdns-upstream=127.0.0.1 --dns64 --dns64-prefix=64:ffff:: --dns64-prefix=32:ffff::
-```
-
-Note that only the first specified prefix will be used for synthesis.
-
-PTR queries for addresses within the specified ranges or the
-[Well-Known one][wkp] could only be answered with locally appropriate data, so
-dnsproxy will route those to the local upstream servers.  Those should be
-specified and enabled if DNS64 is enabled.
-
-[wkp]: https://datatracker.ietf.org/doc/html/rfc6052#section-2.1
-
-### Fastest addr + cache-min-ttl
-
-This option would be useful to the users with problematic network connection.
-In this mode, `dnsproxy` would detect the fastest IP address among all that were
-returned, and it will return only it.
-
-Additionally, for those with problematic network connection, it makes sense to
-override `cache-min-ttl`.  In this case, `dnsproxy` will make sure that DNS
-responses are cached for at least the specified amount of time.
-
-It makes sense to run it with multiple upstream servers only.
-
-Run a DNS proxy with two upstreams, min-TTL set to 10 minutes, fastest address
-detection is enabled:
-```
-./dnsproxy -u 8.8.8.8 -u 1.1.1.1 --cache --cache-min-ttl=600 --upstream-mode=fastest_addr
-```
-
- who run `dnsproxy` with multiple upstreams
-
-### Specifying upstreams for domains
-
-You can specify upstreams that will be used for a specific domain(s). We use the
-dnsmasq-like syntax, decorating domains with brackets (see `--server`
-[description][server-description]).
-
-**Syntax:** `[/[domain1][/../domainN]/]upstreamString`
-
-Where `upstreamString` is one or many upstreams separated by space (e.g.
-`1.1.1.1` or `1.1.1.1 2.2.2.2`).
-
-If one or more domains are specified, that upstream (`upstreamString`) is used
-only for those domains. Usually, it is used for private nameservers. For
-instance, if you have a nameserver on your network which deals with
-`xxx.internal.local` at `192.168.0.1` then you can specify
-`[/internal.local/]192.168.0.1`, and dnsproxy will send all queries to that
-nameserver. Everything else will be sent to the default upstreams (which are
-mandatory!).
-
-1. An empty domain specification, `//` has the special meaning of "unqualified
-   names only", which will be used to resolve names with a single label in them,
-   or with exactly two labels in case of `DS` requests.
-2. More specific domains take precedence over less specific domains, so:
-   `--upstream=[/host.com/]1.2.3.4 --upstream=[/www.host.com/]2.3.4.5` will send
-   queries for `*.host.com` to `1.2.3.4`, except `*.www.host.com`, which will go
-   to `2.3.4.5`.
-3. The special server address `#` means, "use the common servers", so:
-   `--upstream=[/host.com/]1.2.3.4 --upstream=[/www.host.com/]#` will send
-   queries for `*.host.com` to `1.2.3.4`, except `*.www.host.com` which will be
-   forwarded as usual.
-4. The wildcard `*` has special meaning of "any sub-domain", so:
-   `--upstream=[/*.host.com/]1.2.3.4` will send queries for `*.host.com` to
-   `1.2.3.4`, but `host.com` will be forwarded to default upstreams.
-
-**Examples**
-
-Sends requests for `*.local` domains to `192.168.0.1:53`. Other requests are
-sent to `8.8.8.8:53`:
-
-```sh
-./dnsproxy\
-    -u "8.8.8.8:53"\
-    -u "[/local/]192.168.0.1:53"
-```
-
-Sends requests for `*.host.com` to `1.1.1.1:53` except for `*.maps.host.com`
-which are sent to `8.8.8.8:53` (along with other requests):
-
-```sh
-./dnsproxy\
-    -u "8.8.8.8:53"\
-    -u "[/host.com/]1.1.1.1:53"\
-    -u "[/maps.host.com/]#"
-```
-
-Sends requests for `*.host.com` to `1.1.1.1:53` except for `host.com` which is
-sent to `9.9.9.10:53`, and all other requests are sent to `8.8.8.8:53`:
-
-```sh
-./dnsproxy\
-    -u "8.8.8.8:53"\
-    -u "[/host.com/]9.9.9.10:53"\
-    -u "[/*.host.com/]1.1.1.1:53"
-```
-
-Sends requests for `com` (and its subdomains) to `1.2.3.4:53`, requests for
-other top-level domains to `1.1.1.1:53`, and all other requests to `8.8.8.8:53`:
-
-```sh
-./dnsproxy\
-    -u "8.8.8.8:53"\
-    -u "[//]1.1.1.1:53"\
-    -u "[/com/]1.2.3.4:53"
-```
-
-### Specifying private rDNS upstreams
-
-You can specify upstreams that will be used for reverse DNS requests of type PTR
-for private addresses.  Same applies to the authority requests of types SOA and
-NS.  The set of private addresses is defined by the `--private-rdns-upstream`,
-and the set from [RFC 6303][rfc6303] is used by default.
-
-The additional requirement to the domains specified for upstreams is to be
-`in-addr.arpa`, `ip6.arpa`, or its subdomain.  Addresses encoded in the domains
-should also be private.
-
-**Examples**
-
-Sends queries for `*.168.192.in-addr.arpa` to `192.168.1.2`, if requested by
-client from `192.168.0.0/16` subnet.  Other queries answered with `NXDOMAIN`:
-
-```sh
-./dnsproxy\
-    -l "0.0.0.0"\
-    -u "8.8.8.8"\
-    --use-private-rdns\
-    --private-subnets="192.168.0.0/16"
-    --private-rdns-upstream="192.168.1.2"\
-```
-
-Sends queries for `*.in-addr.arpa` to `192.168.1.2`, `*.ip6.arpa` to `fe80::1`,
-if requested by client within the default [RFC 6303][rfc6303] subnet set.  Other
-queries answered with `NXDOMAIN`:
-
-```sh
-./dnsproxy\
-    -l "0.0.0.0"\
-    -u 8.8.8.8\
-    --use-private-rdns\
-    --private-rdns-upstream="192.168.1.2"\
-    --private-rdns-upstream="[/ip6.arpa/]fe80::1"
-```
-
-[rfc6303]: https://datatracker.ietf.org/doc/html/rfc6303
-[server-description]: http://www.thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html
-
-
-### EDNS Client Subnet
-
-To enable support for EDNS Client Subnet extension you should run dnsproxy with `--edns` flag:
+# 时间敏感的 DNS Proxy
+
+为中国大陆专业玩家修改的 dnsproxy, 借助并合理利用低延迟的国际 DNS 访问渠道
+
+## Why
+
+现有的 DNS 防污染/优化/分流/加速方案没有考虑影响用户体验的参数--耐心(时间)  
+
+本 dnsproxy fork 将时间作为重要依据, 适合的用户场景如下
+
+1. 软件发起 TCP 请求到代理, 代理首先判断域名在列表中, **只有**大陆域名和无法判断的域名, 比如一个小众域名, **才**需要 DNS 解析
+2. 代理向本 dnsproxy 发起解析, 解析结果如果是大陆 IP 则直接连接, 否则使用**域名**继续向其他代理发起连接
+ >  DNS 污染从未有过将域名污染到大陆 IP, 因此 dnsproxy 无需处理 DNS 污染
+ >  代理会使用**域名**继续向其他代理发起连接, 因此 dnsproxy 无需分流, 无需判断 IP     国家
+
+
+在以上典型流程中, dnsproxy 一般被配置为并发向多个上游发起请求, 一般是一组国内一组国外  
+但专业用户往往使用隧道将海外 DNS 服务以低延迟的方式暴露成本地服务 
+这种情况下, 会出现海外 DNS 服务抢先返回了结果, 导致不必要的连接通过代理, 尤其是 CDN  域名
+
+为了避免这种情况, 本 dnsproxy fork 使用了以下逻辑
+
+## 原理
+
+以参数 `--upstream-mode=parallel -u 192.168.0.53:53 -u https://223.5.5.5/dns-query` 为例, 这里 192.168.0.53:53 是一个低延迟的海外 DNS
+
+使用环境变量 `LOCAL-DNS-PATTERN` 用于区分哪个上游是本地(大陆) DNS, 这里可以设置为 `*223.5.5.5*` 
+使用环境变量 `LOCAL-DNS-TOLERANCE-MS` 用于设置容忍时间(毫秒), 在容忍时间内, 海外 DNS 的结果和空结果会被暂存
+
+dnsproxy 收到请求后并发向上游发起请求, 可以理解成赛跑, 在容忍时间内, 胜出的一方作为结果返回; 容忍时间后, 不再挑剔结果
+
+如何判断胜出:  
+1. 容忍时间内, 大陆 DNS 返回了非空结果, 则胜出
+2. 容忍时间内, 一方返回了非空结果, 另一方返回了空结果, 非空的胜出
+3. 超过容忍时间, 采取可用的任意结果
+
+容忍机制使得大陆 DNS 有更充裕的时间响应一个大陆 IP, 一定程度避免了国内域名使用海外 DNS 的海外 IP 响应
+
+## 上手
+
+下载代码编译, 启动 dnsproxy; 或者也下载 `https://github.com/AdguardTeam/AdGuardHome` 使用 `go mod edit -replace github.com/AdguardTeam/dnsproxy=/path/to/dnsproxy` 替换路径后编译 AdGuardHome, 启动 AdGuardHome
+
+可以分别使用大陆域名, 大陆域名不存在的子域名, 海外域名(尤其是 NS 为 cloudflare 的域名), 海外域名不存在的子域名进行测试, 返回延迟应当符合预期
+
+为了避免缓存影响, 可以使用泛域名每次随机或者数字 +1, 如 `random42.dns.nextdns.io` `random42.alidns.com` `random42.doh.360.cn` `random42.doh.pub` `192-168-0-1.sslip.io`
 
 ```
-./dnsproxy -u 8.8.8.8:53 --edns
+1 [info] dnsproxy: use local Answer q=baidu.com. duration=13.99ms u=https://223.5.5.5:443/dns-query ttl=190
+
+2 [info] dnsproxy: defer NEG Answer q=nxdomain42.baidu.com. duration=22.87ms u=https://223.5.5.5:443/dns-query
+3 [info] dnsproxy: NEG Answer from both DNS q=nxdomain42.baidu.com. duration=46.11ms u=192.168.0.53:53
+
+4 [info] dnsproxy: defer NEG Answer q=nxdomain42.cloudflare.com. duration=32.9ms u=192.168.0.53:53
+5 [info] dnsproxy: tolerance Timeout, use deferred q=nxdomain42.cloudflare.com. duration=60.34ms u=192.168.0.53:53
+
+6 [info] dnsproxy: defer non local Answer q=bbs.125.la. duration=25.88ms u=192.168.0.53:53
+7 [info] dnsproxy: use local Answer q=bbs.125.la. duration=55.5ms u=https://120.53.53.53:443/dns-query ttl=120
 ```
 
-Now if you connect to the proxy from the Internet - it will pass through your original IP address's prefix to the upstream server.  This way the upstream server may respond with IP addresses of the servers that are located near you to minimize latency.
+按行说明
 
-If you want to use EDNS CS feature when you're connecting to the proxy from a local network, you need to set `--edns-addr=PUBLIC_IP` argument:
+1. 大陆域名, 大陆 DNS 最先返回结果并采纳, 符合预期
+2. 大陆域名但 NXDOMAIN, 由于仍有耐心, 等待, 符合预期
+3. 海外 DNS 也返回 NXDOMAIN, 由于大陆和海外均返回空结果, 采纳, 符合预期
+4. 海外域名但 NXDOMAIN, 由于仍有耐心, 等待, 符合预期
+5. 失去耐心等待大陆 DNS 结果, 使用海外 DNS 的空结果, 符合预期
+6. 大陆域名, 但海外 DNS 先返回结果,由于仍有耐心, 等待, 符合预期
+7. 大陆域名, 大陆 DNS 在耐心结束前返回了结果, 采纳, 符合预期
 
-```
-./dnsproxy -u 8.8.8.8:53 --edns --edns-addr=72.72.72.72
-```
-
-Now even if your IP address is 192.168.0.1 and it's not a public IP, the proxy will pass through 72.72.72.72 to the upstream server.
-
-### Bogus NXDomain
-
-This option is similar to dnsmasq `bogus-nxdomain`.  `dnsproxy` will transform
-responses that contain at least a single IP address which is also specified by
-the option into `NXDOMAIN`. Can be specified multiple times.
-
-In the example below, we use AdGuard DNS server that returns `0.0.0.0` for
-blocked domains, and transform them to `NXDOMAIN`.
+不想看到的情况
 
 ```
-./dnsproxy -u 94.140.14.14:53 --bogus-nxdomain=0.0.0.0
+1 [info] dnsproxy: defer non local Answer q=baidu.com. duration=51.45ms u=192.168.0.53:53
+2 [info] dnsproxy: tolerance Timeout, use deferred q=baidu.com. duration=79.89ms ttl=192 u=192.168.0.53:53
 ```
 
-CIDR ranges are supported as well.  The following will respond with `NXDOMAIN`
-instead of responses containing any IP from `192.168.0.0`-`192.168.255.255`:
+按行说明
+1. 海外 DNS 抢先返回了大陆域名的结果, 由于仍有耐心, 等待, 符合预期
+2. 失去耐心等待大陆 DNS 结果, 使用海外 DNS 的结果, 但预期该域名应当由大陆 DNS 快速响应, 不符合预期
 
-```
-./dnsproxy -u 192.168.0.15:53 --bogus-nxdomain=192.168.0.0/16
-```
+这种情况可以
+1. 确认大陆 DNS 上游延迟
+2. 考虑添加更优的大陆 DNS 上游
+3. 增加容忍时间
 
-### Basic Auth for DoH
 
-By setting the `--https-userinfo` option you can use `dnsproxy` as a DoH proxy
-with basic authentication requirements.
 
-For example:
+## 效果评价
 
-```sh
-./dnsproxy\
-    --https-port='443'\
-    --https-userinfo='user:p4ssw0rd'\
-    --tls-crt='…/my.crt'\
-    --tls-key='…/my.key'\
-    -u '94.140.14.14:53'
-```
+### 功能生效率
+可以使用具体的大陆域名列表进行测试  
+符合先 `defer non local Answer` 后 `use local Answer` 的属于功能生效;  
+符合先 `defer non local Answer` 后 `tolerance Timeout` 的属于功能未起作用,可能需要调整;  
+符合`use local Answer` 的属于无需本功能介入.
 
-This configuration will only allow DoH queries that contain an `Authorization`
-header containing the BasicAuth credentials for user `user` with password
-`p4ssw0rd`.
+### 综合延迟表现
+// todo dnsperf
 
-Add `-p 0` if you also want to disable plain-DNS handling and make `dnsproxy`
-only serve DoH with Basic Auth checking.
+
