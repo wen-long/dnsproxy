@@ -112,7 +112,9 @@ func ExchangeParallel(ups []Upstream, req *dns.Msg, l *slog.Logger) (reply *dns.
 		} else {
 			l = l.With("u", r.Upstream.Address())
 			if isToleranceTimeout {
-				l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+				if len(r.Resp.Answer) > 0 {
+					l = l.With("ttl", r.Resp.Answer[0].Header().Ttl)
+				}
 				l.Info("use ANY Answer After Tolerance")
 				return r.Resp, r.Upstream, nil
 			}
